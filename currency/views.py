@@ -16,9 +16,10 @@ def refresh_countries(request):
     """
     fetch all countries and exhange rates from API and stores them in db
     """
+    print("refreshhh....")
     try:
-        result = refresh_country_data()
-        return Response(result, status=status.HTTP_200_OK)
+        refresh_country_data()
+        return Response({"message": "country refresh has started"}, status=status.HTTP_202_ACCEPTED)
     except ExternalApiException as e:
         return Response({"error": e.detail}, status=e.status_code)
     except Exception as e:

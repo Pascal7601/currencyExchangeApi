@@ -9,6 +9,8 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 from django.utils import timezone
 import random
+from background_task import background
+
 
 COUNTRY_API = "https://restcountries.com/v2/all?fields=name,capital,region,population,flag,currencies"
 RATES_API = "https://open.er-api.com/v6/latest/USD"
@@ -65,7 +67,7 @@ def _generate_summary_image(total_countries, top_5_countries, timestamp):
     print(f"Summary image saved to {IMAGE_PATH}")
 
 
-
+@background(schedule=1)
 def refresh_country_data():
     """fills the db with data from country api"""
     last_refresh_time = timezone.now()
@@ -149,3 +151,4 @@ def refresh_country_data():
         "total_in_database": total_countries,
         "timestamp": last_refresh_time
     }
+

@@ -39,7 +39,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'django_filters',
-    'currency'
+    'currency',
+    'background_task'
 ]
 
 MIDDLEWARE = [
@@ -82,7 +83,7 @@ DATABASES = {
         'USER': config('MYSQL_USER', default='pascal'),  # Add default
         'PASSWORD': config('MYSQL_PASSWORD', default='pascal'),  # Add default
         'HOST': config('DB_HOST', default='0.tcp.in.ngrok.io'),  # Or 'localhost' for local
-        'PORT': config('DB_PORT', default='10010'),
+        'PORT': config('DB_PORT', default='13042'),
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },

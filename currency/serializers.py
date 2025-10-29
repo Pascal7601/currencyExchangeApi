@@ -25,10 +25,20 @@ class CountrySerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """handles the 400 Bad Request for POST/PUT"""
-        if 'population' in data and data['population'] < 0:
-            raise serializers.ValidationError({"population": "Population cannot be negative."})
-            
-        if 'exchange_rate' in data and data['exchange_rate'] <= 0:
-            raise serializers.ValidationError({"exchange_rate": "Exchange rate must be positive."})
-
+        errors = {}
+        # Check for required fields on creation.
+        # On update (PATCH), fields are optional.
+        if not self.instance:
+            if not data.get('name'):
+                errors['name'] = 'This field is required.'
+            if not data.get('population'):
+                errors['population'] = 'This field is required.'
+            if not data.get('currency_code'):
+                errors['currency_code'] = 'This field is required.'
+        
+        if errors:
+            raise serializers.ValidationError({
+                "error": "Validation failed",
+                "details": errors
+            })
         return data
