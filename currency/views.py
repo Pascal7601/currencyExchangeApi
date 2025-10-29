@@ -7,7 +7,7 @@ from .filters import CountryFilter, CustomOrdering
 from .serializers import CountrySerializer
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, Http404
 import os
 from .exceptions import ExternalApiException
 
@@ -18,8 +18,8 @@ def refresh_countries(request):
     """
     print("refreshhh....")
     try:
-        refresh_country_data()
-        return Response({"message": "country refresh has started"}, status=status.HTTP_202_ACCEPTED)
+        result = refresh_country_data()
+        return Response(result, status=status.HTTP_200_OK)
     except ExternalApiException as e:
         return Response({"error": e.detail}, status=e.status_code)
     except Exception as e:
@@ -33,7 +33,11 @@ class AllCountries(generics.ListAPIView):
     filter_backends = [DjangoFilterBackend, CustomOrdering]
 
     ordering_fields = {
-        "gdp_desc": "-estimated_gdp"
+        "gdp_desc": "-estimated_gdp",
+        "gdp_asc": "estimated_gdp",
+        "name": "name",
+        "population": "population",
+        "region": "region"
     }
 
 class CountryDetail(generics.RetrieveDestroyAPIView):
@@ -41,6 +45,19 @@ class CountryDetail(generics.RetrieveDestroyAPIView):
     queryset = Country.objects.all()
     serializer_class = CountrySerializer
     lookup_field = "name"
+
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            # Try to get the object as usual
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        
+        except Http404:
+            return Response(
+                {"error": "Country not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 @api_view(["GET"])
 def get_status(request):
@@ -56,7 +73,7 @@ def summary_image(request):
     
     if not os.path.exists(image_path):
         return Response(
-            {"error": "Summary image not found. Run /countries/refresh to generate it."}, 
+            {"error": "Summary image not found."}, 
             status=status.HTTP_404_NOT_FOUND
         )
     

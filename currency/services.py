@@ -67,88 +67,109 @@ def _generate_summary_image(total_countries, top_5_countries, timestamp):
     print(f"Summary image saved to {IMAGE_PATH}")
 
 
-@background(schedule=1)
+@transaction.atomic
 def refresh_country_data():
-    """fills the db with data from country api"""
+    """
+    Main service function to fetch, process, and cache data in the DB.
+    This version is optimized for bulk operations to prevent timeouts.
+    """
+    print("Starting data sync (FAST, BULK mode)...")
     last_refresh_time = timezone.now()
-    
+
     # 1. Fetch data from external APIs
-    # If either fails, ExternalApiException will be raised and the
-    # transaction will be rolled back
     rates_data = _fetch_api_data(RATES_API, "ExchangeRates API")['rates']
     country_data = _fetch_api_data(COUNTRY_API, "RestCountries API")
 
     if not rates_data or not country_data:
         raise ExternalApiException(source_name="APIs returned empty data.")
 
-    processed_names = set()
+    # 2. Process data in memory
+    
+    # Get all existing countries from DB in ONE query
+    existing_countries = {c.name.lower(): c for c in Country.objects.all()}
+    
+    countries_to_create = []
+    countries_to_update = []
+    
+    # Fields that we will update in bulk
+    update_fields = [
+        'capital', 'region', 'population', 'flag_url',
+        'currency_code', 'exchange_rate', 'estimated_gdp'
+    ]
 
     for country in country_data:
         name = country.get('name')
         if not name:
             continue
         
-        processed_names.add(name.lower())
         population = country.get('population')
+        currency_list = country.get('currencies')
 
+        # --- Initialize defaults ---
         currency_code = None
         exchange_rate = None
         estimated_gdp = None
-        
 
-        currency_list = country.get('currencies')
-        
+        # --- Apply Currency Logic ---
         if currency_list and isinstance(currency_list, list) and len(currency_list) > 0:
-
-            first_currency = currency_list[0]
-            code = first_currency.get('code')
-            
+            code = currency_list[0].get('code')
             if code and code != '(none)':
                 currency_code = code
                 if currency_code in rates_data:
                     exchange_rate = Decimal(rates_data[currency_code])
-       
                     if population and exchange_rate > 0:
                         multiplier = Decimal(random.uniform(1000, 2000))
                         estimated_gdp = (Decimal(population) * multiplier) / exchange_rate
                 else:
-                    exchange_rate = None
-                    estimated_gdp = None
+                    estimated_gdp = None # Code not found, set GDP to null
         else:
-            currency_code = None
-            exchange_rate = None
-            estimated_gdp = 0
+            estimated_gdp = 0 # Empty currency array, set GDP to 0
 
-        defaults = {
-            'name': name,
-            'capital': country.get('capital'),
-            'region': country.get('region'),
-            'population': population,
-            'flag_url': country.get('flag'),
-            'currency_code': currency_code,
-            'exchange_rate': exchange_rate,
-            'estimated_gdp': estimated_gdp,
-        }
+        # --- Check if country exists and sort into lists ---
+        if name.lower() in existing_countries:
+            # Country exists, add to UPDATE list
+            obj = existing_countries[name.lower()]
+            obj.capital = country.get('capital')
+            obj.region = country.get('region')
+            obj.population = population
+            obj.flag_url = country.get('flag')
+            obj.currency_code = currency_code
+            obj.exchange_rate = exchange_rate
+            obj.estimated_gdp = estimated_gdp
+            countries_to_update.append(obj)
+        else:
+            # Country is new, add to CREATE list
+            countries_to_create.append(
+                Country(
+                    name=name,
+                    capital=country.get('capital'),
+                    region=country.get('region'),
+                    population=population,
+                    flag_url=country.get('flag'),
+                    currency_code=currency_code,
+                    exchange_rate=exchange_rate,
+                    estimated_gdp=estimated_gdp
+                )
+            )
 
-        Country.objects.update_or_create(
-            name__iexact=name,
-            defaults=defaults
-        )
+    # 3. Perform bulk database operations (2 queries total)
+    if countries_to_create:
+        Country.objects.bulk_create(countries_to_create)
+        print(f"Created {len(countries_to_create)} new countries.")
+        
+    if countries_to_update:
+        Country.objects.bulk_update(countries_to_update, update_fields)
+        print(f"Updated {len(countries_to_update)} existing countries.")
 
-    print(f"Processed {len(processed_names)} countries.")
-
-    # 3. Generate Summary Image
-    # This runs inside the transaction. If image gen fails,
-    # the entire DB sync is rolled back.
-    total_countries = Country.objects.count()
-    top_5_countries = Country.objects.order_by('-estimated_gdp').values('name', 'estimated_gdp')[:5]
-    
-    _generate_summary_image(total_countries, top_5_countries, last_refresh_time)
+    # 4. Generate Summary Image
+    total_countries = len(existing_countries) + len(countries_to_create)
+    top_5 = Country.objects.order_by('-estimated_gdp').values('name', 'estimated_gdp')[:5]
+    _generate_summary_image(total_countries, top_5, last_refresh_time)
 
     return {
         "status": "success",
-        "total_countries_processed": len(processed_names),
-        "total_in_database": total_countries,
+        "created": len(countries_to_create),
+        "updated": len(countries_to_update),
         "timestamp": last_refresh_time
     }
 
